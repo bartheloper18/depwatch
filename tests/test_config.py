@@ -1,78 +1,89 @@
-"""Tests for depwatch configuration loader."""
-
+"""Tests for depwatch.config module."""
 import json
 import os
-import tempfile
+
 import pytest
 
 from depwatch.config import (
+    DEFAULT_ALERT_COOLDOWN_HOURS,
+    DEFAULT_CHECK_INTERVAL,
     DepwatchConfig,
+    from_dict,
     load_config,
     save_config,
-    DEFAULT_CHECK_INTERVAL,
-    DEFAULT_LOG_LEVEL,
+    to_dict,
 )
 
 
 @pytest.fixture
 def tmp_config_path(tmp_path):
-    return str(tmp_path / "config.json")
+    return str(tmp_path / "depwatch.json")
 
 
 def test_default_config():
-    config = DepwatchConfig()
-    assert config.watch_paths == []
-    assert config.check_interval == DEFAULT_CHECK_INTERVAL
-    assert config.log_level == DEFAULT_LOG_LEVEL
-    assert config.notify_email is None
-    assert config.ignore_packages == []
-    assert config.enable_vulnerability_check is True
+    cfg = DepwatchConfig()
+    assert cfg.project_roots == []
+    assert cfg.check_interval == DEFAULT_CHECK_INTERVAL
+    assert cfg.alert_cooldown_hours == DEFAULT_ALERT_COOLDOWN_HOURS
+    assert cfg.email_recipients == []
+    assert cfg.report_format == "text"
 
 
 def test_from_dict_partial():
-    data = {"watch_paths": ["/projects/myapp"], "log_level": "DEBUG"}
-    config = DepwatchConfig.from_dict(data)
-    assert config.watch_paths == ["/projects/myapp"]
-    assert config.log_level == "DEBUG"
-    assert config.check_interval == DEFAULT_CHECK_INTERVAL
+    cfg = from_dict({"check_interval": 600, "project_roots": ["/tmp/proj"]})
+    assert cfg.check_interval == 600
+    assert cfg.project_roots == ["/tmp/proj"]
+    assert cfg.smtp_host is None
+
+
+def test_from_dict_alert_cooldown():
+    cfg = from_dict({"alert_cooldown_hours": 12})
+    assert cfg.alert_cooldown_hours == 12
+
+
+def test_from_dict_alert_state_path():
+    cfg = from_dict({"alert_state_path": "/custom/alert.json"})
+    assert cfg.alert_state_path == "/custom/alert.json"
 
 
 def test_to_dict_roundtrip():
-    original = DepwatchConfig(
-        watch_paths=["/srv/app"],
+    cfg = DepwatchConfig(
+        project_roots=["/a", "/b"],
         check_interval=1800,
-        log_level="WARNING",
-        notify_email="dev@example.com",
-        ignore_packages=["boto3"],
-        enable_vulnerability_check=False,
+        alert_cooldown_hours=6,
+        email_recipients=["ops@example.com"],
     )
-    restored = DepwatchConfig.from_dict(original.to_dict())
-    assert restored == original
+    d = to_dict(cfg)
+    restored = from_dict(d)
+    assert restored.project_roots == ["/a", "/b"]
+    assert restored.check_interval == 1800
+    assert restored.alert_cooldown_hours == 6
+    assert restored.email_recipients == ["ops@example.com"]
 
 
 def test_load_config_missing_file(tmp_config_path):
-    config = load_config(tmp_config_path)
-    assert isinstance(config, DepwatchConfig)
-    assert config.watch_paths == []
+    cfg = load_config(tmp_config_path)
+    assert isinstance(cfg, DepwatchConfig)
+    assert cfg.project_roots == []
 
 
 def test_save_and_load_config(tmp_config_path):
-    config = DepwatchConfig(
-        watch_paths=["/home/user/project"],
-        check_interval=600,
-        notify_email="alert@example.com",
+    cfg = DepwatchConfig(
+        project_roots=["/srv/app"],
+        smtp_host="smtp.example.com",
+        alert_cooldown_hours=48,
     )
-    save_config(config, tmp_config_path)
+    save_config(cfg, tmp_config_path)
     assert os.path.exists(tmp_config_path)
 
     loaded = load_config(tmp_config_path)
-    assert loaded.watch_paths == ["/home/user/project"]
-    assert loaded.check_interval == 600
-    assert loaded.notify_email == "alert@example.com"
+    assert loaded.project_roots == ["/srv/app"]
+    assert loaded.smtp_host == "smtp.example.com"
+    assert loaded.alert_cooldown_hours == 48
 
 
-def test_save_config_creates_directory(tmp_path):
+def test_save_config_creates_parent_dirs(tmp_path):
     nested_path = str(tmp_path / "nested" / "dir" / "config.json")
-    config = DepwatchConfig()
-    save_config(config, nested_path)
+    cfg = DepwatchConfig()
+    save_config(cfg, nested_path)
     assert os.path.exists(nested_path)

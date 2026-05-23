@@ -1,60 +1,74 @@
-"""Configuration loader for depwatch daemon."""
+"""Configuration model for depwatch."""
+from __future__ import annotations
 
-import os
 import json
+import os
 from dataclasses import dataclass, field
 from typing import List, Optional
 
-
-DEFAULT_CONFIG_PATH = os.path.expanduser("~/.depwatch/config.json")
 DEFAULT_CHECK_INTERVAL = 3600  # seconds
-DEFAULT_LOG_LEVEL = "INFO"
+DEFAULT_ALERT_COOLDOWN_HOURS = 24
 
 
 @dataclass
 class DepwatchConfig:
-    """Holds runtime configuration for the depwatch daemon."""
-
-    watch_paths: List[str] = field(default_factory=list)
+    project_roots: List[str] = field(default_factory=list)
     check_interval: int = DEFAULT_CHECK_INTERVAL
-    log_level: str = DEFAULT_LOG_LEVEL
-    notify_email: Optional[str] = None
-    ignore_packages: List[str] = field(default_factory=list)
-    enable_vulnerability_check: bool = True
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "DepwatchConfig":
-        return cls(
-            watch_paths=data.get("watch_paths", []),
-            check_interval=data.get("check_interval", DEFAULT_CHECK_INTERVAL),
-            log_level=data.get("log_level", DEFAULT_LOG_LEVEL),
-            notify_email=data.get("notify_email"),
-            ignore_packages=data.get("ignore_packages", []),
-            enable_vulnerability_check=data.get("enable_vulnerability_check", True),
-        )
-
-    def to_dict(self) -> dict:
-        return {
-            "watch_paths": self.watch_paths,
-            "check_interval": self.check_interval,
-            "log_level": self.log_level,
-            "notify_email": self.notify_email,
-            "ignore_packages": self.ignore_packages,
-            "enable_vulnerability_check": self.enable_vulnerability_check,
-        }
+    alert_cooldown_hours: int = DEFAULT_ALERT_COOLDOWN_HOURS
+    alert_state_path: str = ".depwatch/alert_state.json"
+    history_path: str = ".depwatch/history.json"
+    smtp_host: Optional[str] = None
+    smtp_port: int = 587
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    email_from: Optional[str] = None
+    email_recipients: List[str] = field(default_factory=list)
+    report_format: str = "text"
 
 
-def load_config(path: str = DEFAULT_CONFIG_PATH) -> DepwatchConfig:
-    """Load configuration from a JSON file, returning defaults if not found."""
+def from_dict(data: dict) -> DepwatchConfig:
+    cfg = DepwatchConfig()
+    cfg.project_roots = data.get("project_roots", [])
+    cfg.check_interval = data.get("check_interval", DEFAULT_CHECK_INTERVAL)
+    cfg.alert_cooldown_hours = data.get("alert_cooldown_hours", DEFAULT_ALERT_COOLDOWN_HOURS)
+    cfg.alert_state_path = data.get("alert_state_path", ".depwatch/alert_state.json")
+    cfg.history_path = data.get("history_path", ".depwatch/history.json")
+    cfg.smtp_host = data.get("smtp_host")
+    cfg.smtp_port = data.get("smtp_port", 587)
+    cfg.smtp_user = data.get("smtp_user")
+    cfg.smtp_password = data.get("smtp_password")
+    cfg.email_from = data.get("email_from")
+    cfg.email_recipients = data.get("email_recipients", [])
+    cfg.report_format = data.get("report_format", "text")
+    return cfg
+
+
+def to_dict(cfg: DepwatchConfig) -> dict:
+    return {
+        "project_roots": cfg.project_roots,
+        "check_interval": cfg.check_interval,
+        "alert_cooldown_hours": cfg.alert_cooldown_hours,
+        "alert_state_path": cfg.alert_state_path,
+        "history_path": cfg.history_path,
+        "smtp_host": cfg.smtp_host,
+        "smtp_port": cfg.smtp_port,
+        "smtp_user": cfg.smtp_user,
+        "smtp_password": cfg.smtp_password,
+        "email_from": cfg.email_from,
+        "email_recipients": cfg.email_recipients,
+        "report_format": cfg.report_format,
+    }
+
+
+def load_config(path: str) -> DepwatchConfig:
     if not os.path.exists(path):
         return DepwatchConfig()
-    with open(path, "r") as f:
-        data = json.load(f)
-    return DepwatchConfig.from_dict(data)
+    with open(path, "r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    return from_dict(data)
 
 
-def save_config(config: DepwatchConfig, path: str = DEFAULT_CONFIG_PATH) -> None:
-    """Persist configuration to a JSON file."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(config.to_dict(), f, indent=2)
+def save_config(cfg: DepwatchConfig, path: str) -> None:
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(to_dict(cfg), fh, indent=2)
