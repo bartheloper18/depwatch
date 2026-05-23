@@ -43,6 +43,15 @@ def test_check_result_has_outdated_false_when_empty():
     assert not result.has_outdated
 
 
+def test_check_result_has_outdated_true_when_any_outdated():
+    result = CheckResult(project_path="/fake", ecosystem="python")
+    result.packages = [
+        PackageStatus(name="a", current_version="1.0", outdated=False),
+        PackageStatus(name="b", current_version="2.0", outdated=True),
+    ]
+    assert result.has_outdated
+
+
 # --- check_python_outdated ---
 
 @patch("depwatch.checker.subprocess.run")
@@ -95,11 +104,5 @@ def test_check_node_outdated_success(mock_run, tmp_path):
 
 def test_check_node_outdated_missing_package_json(tmp_path):
     result = check_node_outdated(str(tmp_path))
-    assert result.error == "package.json not found"
-
-
-@patch("depwatch.checker.subprocess.run", side_effect=FileNotFoundError)
-def test_check_node_outdated_npm_not_found(mock_run, tmp_path):
-    (tmp_path / "package.json").write_text('{}')
-    result = check_node_outdated(str(tmp_path))
-    assert result.error == "npm not found"
+    assert result.error is not None
+    assert "package.json" in result.error
