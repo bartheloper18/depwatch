@@ -46,11 +46,25 @@ def add_to_ignore_list(package: str, path: str | Path) -> list[str]:
 
 
 def remove_from_ignore_list(package: str, path: str | Path) -> list[str]:
-    """Remove *package* from the ignore list and return the updated list."""
+    """Remove *package* from the ignore list and return the updated list.
+
+    If *package* is not present in the ignore list, the list is returned
+    unchanged without raising an error.
+    """
     current = load_ignore_list(path)
     updated = sorted(p for p in current if p != package)
     save_ignore_list(updated, path)
     return updated
+
+
+def is_ignored(package: str, path: str | Path) -> bool:
+    """Return ``True`` if *package* is present in the ignore list at *path*.
+
+    This is a convenience wrapper around :func:`load_ignore_list` for
+    single-package look-ups without requiring the caller to load and
+    inspect the full list manually.
+    """
+    return package in load_ignore_list(path)
 
 
 def filter_result(result: CheckResult, ignore_list: list[str]) -> CheckResult:
