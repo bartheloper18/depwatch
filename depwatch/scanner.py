@@ -25,6 +25,11 @@ class ProjectScan:
 PYTHON_DEP_FILES = ["requirements.txt", "Pipfile", "pyproject.toml", "setup.cfg"]
 NODE_DEP_FILES = ["package.json"]
 
+DEP_FILES_BY_TYPE = {
+    ProjectType.PYTHON: PYTHON_DEP_FILES,
+    ProjectType.NODE: NODE_DEP_FILES,
+}
+
 
 def _find_files(directory: str, filenames: List[str]) -> List[str]:
     """Return absolute paths for any matching filenames found in directory."""
@@ -65,11 +70,6 @@ def scan_project(directory: str, project_type: Optional[str] = None) -> ProjectS
     else:
         ptype = detect_project_type(directory)
 
-    if ptype == ProjectType.PYTHON:
-        dep_files = _find_files(directory, PYTHON_DEP_FILES)
-    elif ptype == ProjectType.NODE:
-        dep_files = _find_files(directory, NODE_DEP_FILES)
-    else:
-        dep_files = []
+    dep_files = _find_files(directory, DEP_FILES_BY_TYPE.get(ptype, []))
 
     return ProjectScan(path=directory, project_type=ptype, dependency_files=dep_files)
