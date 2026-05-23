@@ -48,12 +48,37 @@ def format_json(result: CheckResult, indent: int = 2) -> str:
     return json.dumps(_result_to_dict(result), indent=indent)
 
 
+def format_markdown(result: CheckResult) -> str:
+    """Return a Markdown-formatted report string.
+
+    Produces a small summary heading followed by a table of outdated packages,
+    or a short confirmation message when everything is up to date.
+    """
+    lines = [
+        f"## depwatch report: {result.project_name}",
+        f"*Ecosystem: {result.ecosystem}*",
+        "",
+    ]
+    if not result.has_outdated:
+        lines.append("✓ All packages are up to date.")
+    else:
+        lines += [
+            f"✗ **{len(result.outdated_packages)} outdated package(s)**",
+            "",
+            "| Package | Current | Latest |",
+            "|---------|---------|--------|",
+        ]
+        for pkg in result.outdated_packages:
+            lines.append(f"| {pkg.name} | {pkg.current_version} | {pkg.latest_version} |")
+    return "\n".join(lines)
+
+
 def format_report(result: CheckResult, fmt: str = "text") -> str:
     """Dispatch to the appropriate formatter.
 
     Args:
         result: The check result to format.
-        fmt: One of ``"text"`` or ``"json"``.
+        fmt: One of ``"text"``, ``"json"``, or ``"markdown"``.
 
     Raises:
         ValueError: If *fmt* is not supported.
@@ -62,4 +87,6 @@ def format_report(result: CheckResult, fmt: str = "text") -> str:
         return format_text(result)
     if fmt == "json":
         return format_json(result)
-    raise ValueError(f"Unsupported report format: {fmt!r}. Choose 'text' or 'json'.")
+    if fmt == "markdown":
+        return format_markdown(result)
+    raise ValueError(f"Unsupported report format: {fmt!r}. Choose 'text', 'json', or 'markdown'.")
