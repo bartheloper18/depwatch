@@ -1,127 +1,111 @@
-"""Entry point for the depwatch daemon.
+"""CLI entry-point for depwatch."""
 
-Run with: python -m depwatch [options]
-"""
+from __future__ import annotations
 
 import argparse
 import logging
+import signal
 import sys
-import time
+from pathlib import Path
+from typing import List
 
 from depwatch.checker import check_python, check_node
-from depwatch.config import load_config, DepwatchConfig
+from depwatch.config import load_config
 from depwatch.notifier import send_notification
 from depwatch.report import format_report
 from depwatch.scheduler import Scheduler
+from depwatch.watcher import FileWatcher, collect_watched_files
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
 logger = logging.getLogger("depwatch")
 
 
-def run_checks(config: DepwatchConfig) -> None:
-    """Run all configured dependency checks and dispatch notifications/reports."""
+def run_checks(config_path: str) -> None:
+    """Load config, run all checks, report and optionally notify."""
+    cfg = load_config(config_path)
     results = []
-
-    for project in config.projects:
-        path = project.get("path", ".")
+    for project in cfg.projects:
+        p = Path(project["path"])
         kind = project.get("type", "python")
-        name = project.get("name", path)
+        if kind == "python":
+            results.append(check_python(p, project.get("name", p.name)))
+        elif kind == "node":
+            results.append(check_node(p, project.get("name", p.name)))
+        else:
+            logger.warning("Unknown project type '%s' — skipping.", kind)
 
-        logger.info("Checking %s project '%s' at %s", kind, name, path)
+    for result in results:
+        print(format_report(result, fmt=cfg.report_format))
 
-        try:
-            if kind == "python":
-                result = check_python(path, project_name=name)
-            elif kind == "node":
-                result = check_node(path, project_name=name)
-            else:
-                logger.warning("Unknown project type '%s' for '%s', skipping.", kind, name)
-                continue
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.error("Failed to check project '%s': %s", name, exc)
-            continue
+    if cfg.notify and any(r.has_outdated for r in results):
+        send_notification(cfg.notifier, results)
 
-        results.append(result)
 
-        report_output = format_report(result, fmt=config.report_format)
-        print(report_output)
-
-    if results and config.notify:
-        try:
-            send_notification(results, config.notifier)
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.error("Notification failed: %s", exc)
+def _on_dep_file_changed(path: Path, config_path: str) -> None:
+    logger.info("Dependency file changed: %s — re-running checks.", path)
+    try:
+        run_checks(config_path)
+    except Exception as exc:  # pragma: no cover
+        logger.error("Check failed after file change: %s", exc)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(
         prog="depwatch",
-        description="Monitor Python and Node project dependencies for outdated or vulnerable packages.",
+        description="Monitor Python and Node dependencies for outdated or vulnerable packages.",
     )
-    parser.add_argument(
-        "--config",
-        default="depwatch.yml",
-        metavar="FILE",
-        help="Path to the configuration file (default: depwatch.yml).",
-    )
-    parser.add_argument(
-        "--once",
-        action="store_true",
-        help="Run checks once and exit instead of running as a daemon.",
-    )
-    parser.add_argument(
-        "--format",
-        choices=["text", "json"],
-        default=None,
-        help="Override the report output format.",
-    )
-    parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Enable verbose/debug logging.",
-    )
+    parser.add_argument("--config", default="depwatch.yaml", help="Path to config file.")
+    parser.add_argument("--once", action="store_true", help="Run checks once and exit.")
+    parser.add_argument("--watch", action="store_true", help="Re-check when dependency files change.")
+    parser.add_argument("--interval", type=int, default=3600, help="Scheduler interval in seconds.")
+    parser.add_argument("--log-level", default="INFO", help="Logging level.", dest="log_level")
     return parser
 
 
-def main() -> int:
-    """Main entry point for depwatch."""
-    parser = build_parser()
-    args = parser.parse_args()
+def main(argv: List[str] | None = None) -> None:
+    args = build_parser().parse_args(argv)
 
-    if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
-
-    logger.debug("Loading config from '%s'", args.config)
-    config = load_config(args.config)
-
-    if args.format:
-        config.report_format = args.format
+    logging.basicConfig(
+        level=getattr(logging, args.log_level.upper(), logging.INFO),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
 
     if args.once:
-        logger.info("Running one-shot dependency check.")
-        run_checks(config)
-        return 0
+        run_checks(args.config)
+        return
 
-    # Daemon mode: schedule recurring checks
-    interval = config.interval_seconds
-    logger.info("Starting depwatch daemon (interval: %ds). Press Ctrl+C to stop.", interval)
+    scheduler = Scheduler(interval=args.interval, task=lambda: run_checks(args.config))
 
-    scheduler = Scheduler(interval_seconds=interval, task=lambda: run_checks(config))
+    watcher: FileWatcher | None = None
+    if args.watch:
+        try:
+            cfg = load_config(args.config)
+            roots = [Path(p["path"]) for p in cfg.projects]
+            watched = collect_watched_files(roots)
+            if watched:
+                watcher = FileWatcher(
+                    paths=watched,
+                    callback=lambda p: _on_dep_file_changed(p, args.config),
+                    poll_interval=5.0,
+                )
+                watcher.start()
+                logger.info("Watching %d dependency file(s) for changes.", len(watched))
+            else:
+                logger.warning("--watch enabled but no recognised dependency files found.")
+        except Exception as exc:  # pragma: no cover
+            logger.error("Could not start file watcher: %s", exc)
+
+    def _shutdown(sig, frame):  # pragma: no cover
+        logger.info("Shutting down (signal %d)…", sig)
+        scheduler.stop()
+        if watcher:
+            watcher.stop()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
     scheduler.start()
 
-    try:
-        while scheduler.is_running():
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logger.info("Interrupted — stopping depwatch.")
-        scheduler.stop()
 
-    return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+if __name__ == "__main__":  # pragma: no cover
+    main()
