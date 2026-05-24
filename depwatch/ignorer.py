@@ -67,6 +67,20 @@ def is_ignored(package: str, path: str | Path) -> bool:
     return package in load_ignore_list(path)
 
 
+def clear_ignore_list(path: str | Path) -> None:
+    """Remove all entries from the ignore list at *path*.
+
+    If the file does not exist, this function does nothing.  The file is
+    written (or overwritten) with an empty JSON array so that subsequent
+    calls to :func:`load_ignore_list` return an empty list rather than
+    triggering the "file not found" early-return path.
+    """
+    p = Path(path)
+    if not p.exists():
+        return
+    save_ignore_list([], path)
+
+
 def filter_result(result: CheckResult, ignore_list: list[str]) -> CheckResult:
     """Return a new :class:`CheckResult` with ignored packages removed."""
     if not ignore_list:
