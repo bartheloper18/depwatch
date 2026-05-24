@@ -60,6 +60,16 @@ def test_format_json_has_checked_at():
     assert "checked_at" in data
 
 
+def test_format_json_package_fields():
+    """Ensure each package entry in the JSON output contains expected fields."""
+    result = _make_result()
+    data = json.loads(format_json(result))
+    for pkg in data["packages"]:
+        assert "name" in pkg
+        assert "current_version" in pkg
+        assert "latest_version" in pkg
+
+
 def test_format_report_text():
     result = _make_result()
     assert format_report(result, fmt="text") == format_text(result)
