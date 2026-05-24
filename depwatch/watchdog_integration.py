@@ -13,6 +13,8 @@ from typing import Callable, List, Optional
 
 logger = logging.getLogger(__name__)
 
+VALID_EVENT_TYPES = frozenset({"modified", "created", "deleted"})
+
 
 @dataclass
 class WatchEvent:
@@ -73,6 +75,19 @@ def emit_event(
     path: Path,
     event_type: str = "modified",
 ) -> None:
-    """Emit a WatchEvent into a session (useful for testing and manual triggers)."""
+    """Emit a WatchEvent into a session (useful for testing and manual triggers).
+
+    Args:
+        session: The target WatchSession to receive the event.
+        path: The filesystem path associated with the event.
+        event_type: One of 'modified', 'created', or 'deleted'. Defaults to 'modified'.
+
+    Raises:
+        ValueError: If event_type is not a recognised event type.
+    """
+    if event_type not in VALID_EVENT_TYPES:
+        raise ValueError(
+            f"Invalid event_type {event_type!r}. Must be one of {sorted(VALID_EVENT_TYPES)}."
+        )
     event = WatchEvent(path=Path(path), event_type=event_type)
     session.dispatch(event)
