@@ -84,6 +84,19 @@ def test_audit_result_finds_outdated():
     assert report.findings[0].severity == "critical"
 
 
+def test_audit_result_multiple_packages_mixed():
+    """Verify that only outdated packages produce findings."""
+    packages = [
+        _ps("up-to-date", "2.0.0", "2.0.0", outdated=False),
+        _ps("slightly-old", "2.0.0", "3.0.0"),
+        _ps("very-old", "1.0.0", "4.0.0"),
+    ]
+    report = audit_result(_make_result(packages))
+    assert len(report.findings) == 2
+    severities = {f.package for f in report.findings}
+    assert severities == {"slightly-old", "very-old"}
+
+
 def test_audit_report_has_critical_true():
     finding = AuditFinding("p", "lib", "1.0", "3.0", "critical")
     report = AuditReport(findings=[finding])
