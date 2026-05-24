@@ -30,19 +30,31 @@ def add_summary_subcommand(subparsers: argparse._SubParsersAction) -> None:  # n
     parser.set_defaults(func=_cmd_summary)
 
 
+def _resolve_history_path(args: argparse.Namespace) -> tuple[str | None, int]:
+    """Resolve the history file path from args or config.
+
+    Returns a (path, exit_code) tuple. If exit_code is non-zero, path will be
+    None and the caller should propagate the error.
+    """
+    if args.history is not None:
+        return args.history, 0
+
+    try:
+        cfg = load_config(args.config)
+        return cfg.history_path, 0
+    except FileNotFoundError:
+        print(
+            f"Config file '{args.config}' not found and --history not specified.",
+            file=sys.stderr,
+        )
+        return None, 1
+
+
 def _cmd_summary(args: argparse.Namespace) -> int:
     """Handler for the 'summary' subcommand. Returns an exit code."""
-    history_path = args.history
-    if history_path is None:
-        try:
-            cfg = load_config(args.config)
-            history_path = cfg.history_path
-        except FileNotFoundError:
-            print(
-                f"Config file '{args.config}' not found and --history not specified.",
-                file=sys.stderr,
-            )
-            return 1
+    history_path, code = _resolve_history_path(args)
+    if code != 0:
+        return code
 
     print(format_summary(history_path))
     return 0
